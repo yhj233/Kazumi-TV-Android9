@@ -45,9 +45,14 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "com.predidit.kazumi"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdkVersion flutter.minSdkVersion
+        // Android 9 (API 28) 及以上的 Android TV 盒子适配：
+        // 这里固定写死为 24（Android 7.0），不再使用 flutter.minSdkVersion。
+        // 原因：flutter.minSdkVersion 会随着 Flutter 版本升级而不断抬高
+        // （历史上是 16 -> 19 -> 21 -> 24），一旦上游 Flutter 版本继续提高，
+        // 老盒子就会被静默淘汰。写死 24 可以同时覆盖 Android 7 / 8 / 9 / 10+，
+        // 也保证后续升级 Flutter 时不会再动到最低兼容版本。
+        // 已确认本项目的所有插件都支持 minSdk 24（官方发布 APK 的 minSdkVersion 即为 24）。
+        minSdkVersion 24
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

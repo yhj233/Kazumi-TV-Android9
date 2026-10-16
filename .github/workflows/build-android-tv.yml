@@ -1,0 +1,129 @@
+---
+name: "Build Android TV APK (Android 9+)"
+
+# 只保留安卓构建：产出可直接侧载到 Android 9 (API 28) 电视盒子上的 APK。
+# - push 到 main 自动编译
+# - 也可以在 Actions 页面点 "Run workflow" 手动触发
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'static/**'
+      - 'fastlane/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: "Build APK (minSdk 24 / API 28 ready)"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Read app version
+        id: app
+        run: |
+          version=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Kazumi ${version} —— Android TV / Android 9 适配版"
+        shell: bash
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      # 与上游 CI 保持一致：jni / ech_http 等原生依赖需要 cmake + ninja
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build libgtk-3-dev \
+            libayatana-appindicator3-dev libasound2-dev
+        shell: bash
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+        shell: bash
+
+      # 通用 APK：包含 arm64-v8a / armeabi-v7a / x86_64 全部 ABI，
+      # 不需要知道盒子的 CPU 架构，直接安装即可（体积较大）。
+      - name: Build universal APK (all ABIs)
+        env:
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
+          KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
+          KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+        run: |
+          flutter build apk --release \
+            --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID}" \
+            --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY}" \
+            --dart-define=KAZUMI_APPID="${KAZUMI_APPID}" \
+            --dart-define=KAZUMI_KEY="${KAZUMI_KEY}"
+        shell: bash
+
+      # 分 ABI APK：体积只有通用包的三分之一左右，适合按盒子架构选装。
+      - name: Build split-per-abi APKs
+        env:
+          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
+          KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
+          KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+        run: |
+          flutter build apk --release --split-per-abi \
+            --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID}" \
+            --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY}" \
+            --dart-define=KAZUMI_APPID="${KAZUMI_APPID}" \
+            --dart-define=KAZUMI_KEY="${KAZUMI_KEY}"
+        shell: bash
+
+      - name: Collect APKs
+        run: |
+          set -e
+          V="${{ steps.app.outputs.version }}"
+          mkdir -p out
+          cp build/app/outputs/flutter-apk/app-release.apk            "out/Kazumi-TV-${V}-universal.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk  "out/Kazumi-TV-${V}-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "out/Kazumi-TV-${V}-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk     "out/Kazumi-TV-${V}-x86_64.apk"
+          ls -la out
+        shell: bash
+
+      # 把关键信息打进构建日志，方便确认最低版本 / ABI / TV 声明确实生效
+      - name: Verify APK metadata
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT2=$(ls "$SDK"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
+          echo "aapt2: ${AAPT2}"
+          for f in out/*.apk; do
+            echo "================= $f ================="
+            if [ -n "$AAPT2" ]; then
+              "$AAPT2" dump badging "$f" \
+                | grep -E "package:|sdkVersion|targetSdkVersion|native-code|uses-feature|launchable-activity" || true
+            fi
+          done
+        shell: bash
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kazumi-TV-Android9-${{ steps.app.outputs.version }}
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 30

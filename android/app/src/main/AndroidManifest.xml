@@ -1,10 +1,26 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android TV 盒子适配：
+         1) touchscreen required=false —— 不写这一条时，APK 会被隐式认为要求触屏，
+            没有触摸屏的电视盒子可能拒绝安装 / 不出现在桌面。
+         2) software.leanback required=false —— 表示这是普通应用（也可跑在电视上），
+            而不是只能跑在电视上的 Leanback 专用应用，手机/平板仍可安装。
+         3) gamepad required=false —— 允许用遥控器/手柄操作的设备安装。 -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.gamepad"
+        android:required="false" />
     <application
         android:label="Kazumi"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
         android:extractNativeLibs="true">
         <meta-data
              android:name="io.flutter.embedding.android.EnableImpeller"
@@ -31,6 +47,9 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+                <!-- 同时注册为 Android TV 桌面(Leanback Launcher)入口，
+                     否则电视盒子的桌面上看不到这个应用。 -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

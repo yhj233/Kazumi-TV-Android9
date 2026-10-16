@@ -17,12 +17,38 @@
 
 ## 支持平台
 
-- Android 10 及以上
+- Android 7.0 及以上（本仓库已适配 Android 9 电视盒子）
 - Windows 10 及以上
 - MacOS 10.15 及以上
 - Linux (实验性)
 - iOS 13 及以上 (需要 [侧载](https://kazumi.app/docs/misc/how-to-install-in-ios))
 - HarmonyOS 5.0 及以上 (位于 [分支仓库](https://github.com/ErBWs/Kazumi/releases/latest)，需要 [侧载](https://kazumi.app/docs/misc/how-to-install-in-ohos))
+
+## 本仓库说明（Android TV / Android 9 适配版）
+
+这是 [`Predidit/Kazumi`](https://github.com/Predidit/Kazumi) 的移植分支，目标是让 Kazumi 运行在 **Android 9 (API 28) 的 Android TV 盒子**上。应用代码与上游保持一致，只做了最小必要改动：
+
+| 改动 | 文件 | 说明 |
+| --- | --- | --- |
+| 固定 minSdk 为 24 | `android/app/build.gradle` | 上游跟随 `flutter.minSdkVersion`，会随 Flutter 升级不断抬高；固定为 24（Android 7.0）可稳定覆盖 Android 7 / 8 / 9 |
+| 增加 TV 支持 | `android/app/src/main/AndroidManifest.xml` | `touchscreen` / `leanback` / `gamepad` 声明为非必需，注册 `LEANBACK_LAUNCHER`，新增 320x180 TV 横幅 |
+| 新增云编译流水线 | `.github/workflows/build-android-tv.yml` | 只构建 Android，产出通用 APK（全 ABI）与按 ABI 拆分的 APK |
+
+### 安装
+
+到 [Actions](../../actions) 页面下载最新一次构建产物 `Kazumi-TV-Android9-*`：
+
+- 不确定盒子 CPU 架构 → 直接安装 `*-universal.apk`（内含 arm64-v8a / armeabi-v7a / x86_64）
+- 明确知道架构 → 安装对应拆分包，体积更小
+
+若设备上已装过其它签名的 Kazumi，需先卸载（签名不同无法覆盖安装）。
+
+### 已知限制
+
+- **弹幕**需要 DanDanPlay 开放平台的凭据。在仓库 `Settings → Secrets and variables → Actions` 添加
+  `DANDANAPI_APPID` / `DANDANAPI_KEY`（可选 `KAZUMI_APPID` / `KAZUMI_KEY`）后重新触发构建即可启用；
+  未配置时应用可正常使用，仅弹幕功能不可用。
+- 遥控器操作沿用 Flutter 默认的焦点导航，部分触屏手势界面建议配合鼠标 / 飞鼠使用。
 
 ## 屏幕截图
 
