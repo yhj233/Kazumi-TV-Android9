@@ -2,8 +2,10 @@
 name: "Build Android TV APK (Android 9+)"
 
 # 只保留安卓构建：产出可直接侧载到 Android 9 (API 28) 电视盒子上的 APK。
-# - push 到 main 自动编译
-# - 也可以在 Actions 页面点 "Run workflow" 手动触发
+#
+# 体积策略：默认「按架构拆分」，每个 APK 只含一种 CPU 架构的原生库（约 32 MB），
+# 每种架构单独作为一个 artifact 上传，避免出现 170 MB+ 的通用包导致下载困难。
+# 如需通用包（内含全部 ABI，任何盒子都能装但体积大），手动触发时选 universal。
 on:
   push:
     branches:
@@ -13,13 +15,30 @@ on:
       - 'static/**'
       - 'fastlane/**'
   workflow_dispatch:
+    inputs:
+      abi:
+        description: '目标 CPU 架构（电视盒子绝大多数是 armeabi-v7a 或 arm64-v8a）'
+        required: true
+        default: 'armeabi-v7a'
+        type: choice
+        options:
+          - armeabi-v7a
+          - arm64-v8a
+          - x86_64
+          - all-split
+          - universal
+      publish_release:
+        description: '构建后创建/更新 Release（生成可直接下载的直链，无需解压 zip）'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-android:
@@ -35,6 +54,27 @@ jobs:
           version=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Kazumi ${version} —— Android TV / Android 9 适配版"
+        shell: bash
+
+      - name: Resolve target ABI
+        id: abi
+        env:
+          INPUT_ABI: ${{ inputs.abi }}
+        run: |
+          # push 触发时 inputs.abi 为空，回退到「全部拆分」
+          abi="${INPUT_ABI:-all-split}"
+          case "$abi" in
+            armeabi-v7a) target="android-arm"   ; split="yes" ;;
+            arm64-v8a)   target="android-arm64" ; split="yes" ;;
+            x86_64)      target="android-x64"   ; split="yes" ;;
+            all-split)   target=""              ; split="yes" ;;
+            universal)   target=""              ; split="no"  ;;
+            *) echo "unknown abi: $abi"; exit 1 ;;
+          esac
+          echo "abi=${abi}"       >> "$GITHUB_OUTPUT"
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+          echo "split=${split}"   >> "$GITHUB_OUTPUT"
+          echo "构建模式: abi=${abi} target-platform=${target:-<all>} split-per-abi=${split}"
         shell: bash
 
       - name: Set up JDK 17
@@ -62,31 +102,20 @@ jobs:
         run: flutter pub get
         shell: bash
 
-      # 通用 APK：包含 arm64-v8a / armeabi-v7a / x86_64 全部 ABI，
-      # 不需要知道盒子的 CPU 架构，直接安装即可（体积较大）。
-      - name: Build universal APK (all ABIs)
+      - name: Build APK
         env:
+          TARGET: ${{ steps.abi.outputs.target }}
+          SPLIT: ${{ steps.abi.outputs.split }}
           DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
           DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
           KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
           KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
         run: |
-          flutter build apk --release \
-            --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID}" \
-            --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY}" \
-            --dart-define=KAZUMI_APPID="${KAZUMI_APPID}" \
-            --dart-define=KAZUMI_KEY="${KAZUMI_KEY}"
-        shell: bash
-
-      # 分 ABI APK：体积只有通用包的三分之一左右，适合按盒子架构选装。
-      - name: Build split-per-abi APKs
-        env:
-          DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
-          DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
-          KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
-          KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
-        run: |
-          flutter build apk --release --split-per-abi \
+          set -e
+          args=(build apk --release)
+          [ -n "$TARGET" ] && args+=(--target-platform="$TARGET")
+          [ "$SPLIT" = "yes" ] && args+=(--split-per-abi)
+          flutter "${args[@]}" \
             --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID}" \
             --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY}" \
             --dart-define=KAZUMI_APPID="${KAZUMI_APPID}" \
@@ -94,15 +123,26 @@ jobs:
         shell: bash
 
       - name: Collect APKs
+        id: collect
+        env:
+          V: ${{ steps.app.outputs.version }}
+          ABI: ${{ steps.abi.outputs.abi }}
         run: |
           set -e
-          V="${{ steps.app.outputs.version }}"
           mkdir -p out
-          cp build/app/outputs/flutter-apk/app-release.apk            "out/Kazumi-TV-${V}-universal.apk"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk  "out/Kazumi-TV-${V}-arm64-v8a.apk"
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "out/Kazumi-TV-${V}-armeabi-v7a.apk"
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk     "out/Kazumi-TV-${V}-x86_64.apk"
-          ls -la out
+          src=build/app/outputs/flutter-apk
+          # 拆分包文件名带 ABI 后缀；通用包名不带后缀
+          for f in "$src"/app-*-release.apk; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f")                       # app-armeabi-v7a-release.apk
+            abi=${base#app-}; abi=${abi%-release.apk}   # armeabi-v7a
+            cp "$f" "out/Kazumi-TV-${V}-${abi}.apk"
+          done
+          if [ -e "$src/app-release.apk" ]; then
+            cp "$src/app-release.apk" "out/Kazumi-TV-${V}-universal.apk"
+          fi
+          echo "=== 产物清单 ==="
+          ls -lh out
         shell: bash
 
       # 把关键信息打进构建日志，方便确认最低版本 / ABI / TV 声明确实生效
@@ -120,10 +160,60 @@ jobs:
           done
         shell: bash
 
-      - name: Upload APKs
+      # 每个 APK 单独上传为一个 artifact —— 下载时只拿自己需要的那个，约 32 MB，
+      # 不用再面对 170 MB+ 的合并包。
+      - name: Upload armeabi-v7a APK
+        if: ${{ hashFiles('out/*-armeabi-v7a.apk') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Kazumi-TV-Android9-${{ steps.app.outputs.version }}
-          path: out/*.apk
+          name: Kazumi-TV-${{ steps.app.outputs.version }}-armeabi-v7a
+          path: out/*-armeabi-v7a.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload arm64-v8a APK
+        if: ${{ hashFiles('out/*-arm64-v8a.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kazumi-TV-${{ steps.app.outputs.version }}-arm64-v8a
+          path: out/*-arm64-v8a.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload x86_64 APK
+        if: ${{ hashFiles('out/*-x86_64.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kazumi-TV-${{ steps.app.outputs.version }}-x86_64
+          path: out/*-x86_64.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload universal APK
+        if: ${{ hashFiles('out/*-universal.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kazumi-TV-${{ steps.app.outputs.version }}-universal
+          path: out/*-universal.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 可选：发布为 Release，得到可直接下载的 .apk 直链（不用下载 zip 再解压）
+      - name: Publish release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          V: ${{ steps.app.outputs.version }}
+        run: |
+          set -e
+          tag="tv-v${V}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 标签已存在就先删掉，保证覆盖同一版本
+          git push --delete origin "$tag" 2>/dev/null || true
+          gh release delete "$tag" --yes 2>/dev/null || true
+          gh release create "$tag" out/*.apk \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Kazumi TV ${V} (Android 9+ / minSdk 24)" \
+            --notes "Android TV 适配版：Leanback 启动器 + 多 ABI 拆分包，最低支持 Android 7.0 (API 24)，已在 Android 9 盒子验证。"
+        shell: bash

@@ -32,14 +32,22 @@
 | --- | --- | --- |
 | 固定 minSdk 为 24 | `android/app/build.gradle` | 上游跟随 `flutter.minSdkVersion`，会随 Flutter 升级不断抬高；固定为 24（Android 7.0）可稳定覆盖 Android 7 / 8 / 9 |
 | 增加 TV 支持 | `android/app/src/main/AndroidManifest.xml` | `touchscreen` / `leanback` / `gamepad` 声明为非必需，注册 `LEANBACK_LAUNCHER`，新增 320x180 TV 横幅 |
-| 新增云编译流水线 | `.github/workflows/build-android-tv.yml` | 只构建 Android，产出通用 APK（全 ABI）与按 ABI 拆分的 APK |
+| 新增云编译流水线 | `.github/workflows/build-android-tv.yml` | 只构建 Android，按 CPU 架构拆分打包，**每种架构单独上传为一个 artifact**（约 32 MB，方便下载） |
 
 ### 安装
 
-到 [Actions](../../actions) 页面下载最新一次构建产物 `Kazumi-TV-Android9-*`：
+到 [Actions](../../actions) 页面下载最新一次构建产物。每种架构是**独立**的 artifact，只下你需要的那个即可：
 
-- 不确定盒子 CPU 架构 → 直接安装 `*-universal.apk`（内含 arm64-v8a / armeabi-v7a / x86_64）
-- 明确知道架构 → 安装对应拆分包，体积更小
+| artifact | 适用设备 |
+| --- | --- |
+| `Kazumi-TV-<版本>-armeabi-v7a` | 32 位 ARM 盒子（绝大多数老旧 / 中低端电视盒子） |
+| `Kazumi-TV-<版本>-arm64-v8a` | 64 位 ARM 盒子（较新的盒子，如晶晨 S905X3 及以上） |
+| `Kazumi-TV-<版本>-x86_64` | x86 盒子 / 模拟器 |
+| `Kazumi-TV-<版本>-universal` | 内含全部架构，任何设备都能装，但体积约 170 MB，**默认不构建** |
+
+> 不确定架构时，在盒子上执行 `adb shell getprop ro.product.cpu.abi` 查看。
+
+手动触发构建时可在 `abi` 下拉框里指定只构建某一种架构；勾选 `publish_release` 还会把 APK 发布为 Release，得到可直接下载的 `.apk` 直链（无需下载 zip 再解压）。
 
 若设备上已装过其它签名的 Kazumi，需先卸载（签名不同无法覆盖安装）。
 
