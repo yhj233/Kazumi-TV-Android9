@@ -212,11 +212,11 @@ abstract class _PlayerPlaybackController with Store {
       }
 
       if (state.duration <= Duration.zero) {
-        // 40 秒还拿不到时长：要么 CDN 卡住，要么解码初始化极慢
-        if (ticks >= 20 && !state.buffering) {
+        // 40 秒还没出画面：可能是 CDN 掐断连接、片源失效或解码初始化极慢
+        if (ticks >= 20) {
           warn(
-            '视频长时间无法开始播放，请换一条线路或换一个番剧来源重试',
-            'PlayerController: 打开后 40 秒仍无时长，已提示用户换线 ${videoUrl()}',
+            '加载超过 40 秒仍没有画面，片源或线路可能不可用，请换一条线路或换一个番剧来源',
+            'PlayerController: 打开后 40 秒仍无画面，已提示用户换线 ${videoUrl()}',
           );
         }
         return;
@@ -476,6 +476,30 @@ abstract class _PlayerPlaybackController with Store {
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
       }
+      // 部分 CDN 会「握手成功但一个字节都不回」，而 mpv 默认无网络读超时，
+      // 于是整段 loading 会挂上一两分钟，看起来就是卡死。
+      // 给 HTTP 读取加一个超时，让失败尽快暴露，交给后面的自动重试处理。
+      try {
+        await pp.setProperty('network-timeout', '25');
+      } catch (e) {
+        KazumiLogger().w('PlayerController: 设置 network-timeout 失败', error: e);
+      }
+      if (!isCurrentPlayer(player)) {
+        return await _discardIfNotCurrent(candidate);
+      }
+      if (Platform.isAndroid) {
+        // 软解跟不上时，mpv 默认只在渲染层丢帧，解码队列会越积越长，
+        // 最终整条管线彻底停住（用户看到的就是卡死）。
+        // 打开解码级丢帧后音频保持连续、画面跳帧，至少不会假死。
+        try {
+          await pp.setProperty('framedrop', 'decoder');
+        } catch (e) {
+          KazumiLogger().w('PlayerController: 设置 framedrop 失败', error: e);
+        }
+        if (!isCurrentPlayer(player)) {
+          return await _discardIfNotCurrent(candidate);
+        }
+      }
       await cachePolicy.apply();
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
@@ -572,6 +596,9 @@ abstract class _PlayerPlaybackController with Store {
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
       }
+      // 必须在 open 之前启动：坏 CDN 上 media_kit 的 open() 会一直挂住不返回，
+      // 若放在 open 之后，用户就正好永远等不到任何提示。
+      _startPlaybackDiagnostics(player);
 
       bool showPlayerError = GStorage.getSetting(SettingsKeys.showPlayerError);
       // 部分 CDN 会在握手后直接掐断连接，mpv 看到的是 EOF（Failed to open）。
@@ -590,6 +617,7 @@ abstract class _PlayerPlaybackController with Store {
             isCurrentPlayer(player)) {
           openRetried = true;
           KazumiLogger().i('PlayerController: 打开失败，2 秒后自动重试一次');
+          _startPlaybackDiagnostics(player);
           unawaited(
             Future<void>.delayed(const Duration(seconds: 2), () async {
               if (!isCurrentPlayer(player)) {
@@ -650,7 +678,6 @@ abstract class _PlayerPlaybackController with Store {
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
       }
-      _startPlaybackDiagnostics(player);
 
       if (cachePolicy.networkAutomatic) {
         KazumiDialog.showToast(message: '移动数据下已自动开启低内存模式，可在播放设置中改为始终关闭');
