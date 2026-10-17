@@ -632,12 +632,14 @@ abstract class _PlayerPlaybackController with Store {
             !playbackStarted() &&
             isCurrentPlayer(player)) {
           openRetries++;
-          final retryOffset = openRetries >= 2 ? 0 : offset;
+          // 续播位置的 seek 在坏线路上每次都要挂几分钟才失败，
+          // 所以首次重试就放弃进度，宁可从头播放也不让用户继续干等。
+          final retryOffset = 0;
           KazumiLogger().i(
-            'PlayerController: 打开失败，2 秒后自动重试'
-            '（第 $openRetries/$maxOpenRetries 次，start=$retryOffset）',
+            'PlayerController: 播放失败，2 秒后自动重试'
+            '（第 $openRetries/$maxOpenRetries 次，start=$retryOffset，原 start=$offset）',
           );
-          if (retryOffset != offset) {
+          if (offset > 0) {
             KazumiDialog.showToast(
               message: '该线路无法跳到上次进度，已从头开始播放',
               duration: const Duration(seconds: 4),
