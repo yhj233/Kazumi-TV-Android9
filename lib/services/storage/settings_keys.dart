@@ -240,7 +240,9 @@ class SettingsKeys {
   );
   static const showPlayerError = SettingKey<bool>(
     _SettingBoxKey.showPlayerError,
-    false,
+    // 默认开启：电视盒子上播放失败往往只是黑屏转圈，没有任何反馈，
+    // 用户无法判断是网络问题还是编码不支持，因此默认把错误暴露出来。
+    true,
     group: SettingGroup.player,
   );
   static const oledEnhance = SettingKey<bool>(
