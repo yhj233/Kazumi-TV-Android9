@@ -601,22 +601,28 @@ abstract class _PlayerPlaybackController with Store {
       _startPlaybackDiagnostics(player);
 
       bool showPlayerError = GStorage.getSetting(SettingsKeys.showPlayerError);
-      // 部分 CDN 会在握手后直接掐断连接，mpv 看到的是 EOF（Failed to open）。
-      // 这种失败是间歇性的，重新 open 一次通常就能恢复，因此在这里做一次自动重试。
-      var openRetried = false;
+      // 部分 CDN 会在握手后掐断连接或长时间不回数据，mpv 看到的是 EOF
+      // （Failed to open）或读取超时。这类失败是"按连接抽签"的，
+      // 换一条新连接往往立刻就能播，所以这里做几次带间隔的自动重试。
+      var openRetries = 0;
+      const maxOpenRetries = 3;
       bool playbackStarted() =>
           player.state.duration > Duration.zero ||
           player.state.position > const Duration(seconds: 1);
       player.stream.error.listen((event) {
         final errorText = event.toString();
         final looksTransient = errorText.contains('Failed to open') ||
-            errorText.contains('ffurl_read returned');
+            errorText.contains('ffurl_read returned') ||
+            errorText.contains('Timeout') ||
+            errorText.contains('timed out');
         if (looksTransient &&
-            !openRetried &&
+            openRetries < maxOpenRetries &&
             !playbackStarted() &&
             isCurrentPlayer(player)) {
-          openRetried = true;
-          KazumiLogger().i('PlayerController: 打开失败，2 秒后自动重试一次');
+          openRetries++;
+          KazumiLogger().i(
+            'PlayerController: 打开失败，2 秒后自动重试（第 $openRetries/$maxOpenRetries 次）',
+          );
           _startPlaybackDiagnostics(player);
           unawaited(
             Future<void>.delayed(const Duration(seconds: 2), () async {
