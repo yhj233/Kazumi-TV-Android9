@@ -174,7 +174,15 @@ class _TvFocusableState extends State<TvFocusable> {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       borderRadius: widget.borderRadius,
-                      border: Border.all(color: borderColor, width: 3),
+                      border: Border.all(color: borderColor, width: 4),
+                      // 电视观看距离远，单靠描边不够，再补一圈外发光。
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: borderColor.withValues(alpha: 0.55),
+                          blurRadius: 18,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
                   ),
                 ),

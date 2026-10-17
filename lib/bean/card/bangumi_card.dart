@@ -36,7 +36,7 @@ class BangumiCardV extends StatelessWidget {
       margin: EdgeInsets.zero,
       child: TvFocusable(
         borderRadius: BorderRadius.circular(12),
-        scale: 1.03,
+        scale: 1.05,
         onActivate: () => _handleTap(context),
         child: GestureDetector(
           child: InkWell(

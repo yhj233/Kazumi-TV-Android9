@@ -220,8 +220,8 @@ class _TvRailEntryState extends State<_TvRailEntry> {
             color: background,
             borderRadius: BorderRadius.circular(14),
             border: _focused
-                ? Border.all(color: scheme.primary, width: 2)
-                : Border.all(color: Colors.transparent, width: 2),
+                ? Border.all(color: scheme.primary, width: 3)
+                : Border.all(color: Colors.transparent, width: 3),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
