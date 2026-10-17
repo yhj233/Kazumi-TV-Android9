@@ -176,21 +176,21 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (_contentScope.hasFocus) {
       return;
     }
-    if (_contentScope.focusedChild != null) {
-      _contentScope.requestFocus();
+    // 优先回到内容区上次停留的控件。
+    final FocusNode? previous = _contentScope.focusedChild;
+    if (previous != null && previous.canRequestFocus) {
+      previous.requestFocus();
       return;
     }
-    _contentScope.requestFocus();
-    // 内容区还没被聚焦过时，scope 自身拿到焦点，
-    // 需要再推一把，把焦点送到第一个可聚焦元素（第一张卡片）。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_contentScope.hasFocus) {
+    // 内容区还没被聚焦过：直接取遍历顺序上的第一个可聚焦控件，
+    // 比先聚焦 scope 再靠 nextFocus 找要可靠。
+    for (final FocusNode node in _contentScope.traversalDescendants) {
+      if (node.canRequestFocus && node.context != null) {
+        node.requestFocus();
         return;
       }
-      if (_contentScope.focusedChild == null) {
-        _contentScope.nextFocus();
-      }
-    });
+    }
+    _contentScope.requestFocus();
   }
 
   void _handleSystemBack(BuildContext context) {
