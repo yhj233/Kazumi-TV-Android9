@@ -24,6 +24,7 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   final FocusScopeNode _contentScope = FocusScopeNode(debugLabel: 'menu-content');
   late int _selectedIndex = menu.indexForPath(widget.location);
   DateTime? _lastExitPromptAt;
+  bool _initialRailFocusDone = false;
 
   /// The shell sits at the bottom of the root stack and stays mounted while
   /// other pages cover it, so it publishes that state for its subtree.
@@ -36,7 +37,31 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     // 否则方向键永远找不到起点，整个界面按什么都没反应。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _railKey.currentState?.focusSelected();
+        _ensureInitialRailFocus();
+      }
+    });
+  }
+
+  /// 首帧可能还判定不出横竖屏（拿到尺寸前按竖屏走），
+  /// 所以每次横屏构建都补一次，直到焦点真的落进界面为止。
+  void _ensureInitialRailFocus() {
+    if (!tvDpadEnabled || _initialRailFocusDone) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _initialRailFocusDone) {
+        return;
+      }
+      final FocusNode? primary = FocusManager.instance.primaryFocus;
+      final FocusScopeNode root = FocusManager.instance.rootScope;
+      if (primary != null && !identical(primary, root)) {
+        _initialRailFocusDone = true;
+        return;
+      }
+      final TvNavRailState? rail = _railKey.currentState;
+      if (rail != null) {
+        _initialRailFocusDone = true;
+        rail.focusSelected();
       }
     });
   }
@@ -74,14 +99,15 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   @override
   void didPopNext() {
     _setCovered(false);
-    _restoreFocusAfterRouteChange();
+    // 从详情页返回时回到刚才停留的位置，而不是从头开始。
+    _restoreFocusAfterRouteChange(preferContent: true);
   }
 
   /// 路由切换后（进详情页、返回主页）把焦点落到新页面里。
   ///
   /// 遥控器不像鼠标，页面换掉以后不会自己产生焦点；不补这一步，
   /// 新页面按什么键都没有反应。
-  void _restoreFocusAfterRouteChange() {
+  void _restoreFocusAfterRouteChange({bool preferContent = false}) {
     if (!tvDpadEnabled) {
       return;
     }
@@ -91,9 +117,14 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
       }
       final FocusNode? primary = FocusManager.instance.primaryFocus;
       final FocusScopeNode root = FocusManager.instance.rootScope;
-      if (primary == null || identical(primary, root)) {
-        root.nextFocus();
+      if (primary != null && !identical(primary, root)) {
+        return;
       }
+      if (preferContent) {
+        _focusContent();
+        return;
+      }
+      root.nextFocus();
     });
   }
 
@@ -198,6 +229,9 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
         },
         child: OrientationBuilder(
           builder: (context, orientation) {
+            if (orientation == Orientation.landscape) {
+              _ensureInitialRailFocus();
+            }
             return orientation == Orientation.portrait
                 ? _bottomMenu(context, _selectedIndex)
                 : _sideMenu(context, _selectedIndex);

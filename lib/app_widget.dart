@@ -142,7 +142,7 @@ class _AppWidgetState extends State<AppWidget>
     Color? color,
     ColorScheme? colorScheme,
   }) {
-    return ThemeData(
+    final theme = ThemeData(
       useMaterial3: true,
       fontFamily: fontFamily,
       brightness: brightness,
@@ -151,6 +151,11 @@ class _AppWidgetState extends State<AppWidget>
       progressIndicatorTheme: progressIndicatorTheme2024,
       sliderTheme: sliderTheme2024,
       pageTransitionsTheme: pageTransitionsTheme2024,
+    );
+    // 遥控器操作时单个控件拿到的焦点要足够醒目（默认焦点色在电视上几乎看不见），
+    // Flutter 没做 TV 适配的页面（设置、搜索、详情）也能受益。
+    return theme.copyWith(
+      focusColor: theme.colorScheme.primary.withValues(alpha: 0.22),
     );
   }
 
