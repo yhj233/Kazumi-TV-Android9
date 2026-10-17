@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:kazumi/bean/card/network_img_layer.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
+import 'package:kazumi/bean/widget/tv_focus.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 
 // 视频卡片 - 垂直布局
@@ -17,52 +18,61 @@ class BangumiCardV extends StatelessWidget {
   final bool canTap;
   final bool enableHero;
 
+  void _handleTap(BuildContext context) {
+    if (!canTap) {
+      KazumiDialog.showToast(
+        message: '编辑模式',
+      );
+      return;
+    }
+    context.pushNamed('/info/', arguments: bangumiItem);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
       clipBehavior: Clip.antiAlias,
       margin: EdgeInsets.zero,
-      child: GestureDetector(
-        child: InkWell(
-          onTap: () {
-            if (!canTap) {
-              KazumiDialog.showToast(
-                message: '编辑模式',
-              );
-              return;
-            }
-            context.pushNamed('/info/', arguments: bangumiItem);
-          },
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AspectRatio(
-                aspectRatio: 0.65,
-                child: LayoutBuilder(builder: (context, boxConstraints) {
-                  final double maxWidth = boxConstraints.maxWidth;
-                  final double maxHeight = boxConstraints.maxHeight;
-                  return enableHero
-                      ? Hero(
-                          transitionOnUserGestures: true,
-                          flightShuttleBuilder:
-                              NetworkImgLayer.heroFlightShuttleBuilder,
-                          tag: bangumiItem.id,
-                          child: NetworkImgLayer(
+      child: TvFocusable(
+        borderRadius: BorderRadius.circular(12),
+        scale: 1.03,
+        onActivate: () => _handleTap(context),
+        child: GestureDetector(
+          child: InkWell(
+            // 焦点交给外层 TvFocusable，避免一张卡片出现两个焦点节点。
+            canRequestFocus: false,
+            onTap: () => _handleTap(context),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AspectRatio(
+                  aspectRatio: 0.65,
+                  child: LayoutBuilder(builder: (context, boxConstraints) {
+                    final double maxWidth = boxConstraints.maxWidth;
+                    final double maxHeight = boxConstraints.maxHeight;
+                    return enableHero
+                        ? Hero(
+                            transitionOnUserGestures: true,
+                            flightShuttleBuilder:
+                                NetworkImgLayer.heroFlightShuttleBuilder,
+                            tag: bangumiItem.id,
+                            child: NetworkImgLayer(
+                              src: bangumiItem.images['large'] ?? '',
+                              width: maxWidth,
+                              height: maxHeight,
+                            ),
+                          )
+                        : NetworkImgLayer(
                             src: bangumiItem.images['large'] ?? '',
                             width: maxWidth,
                             height: maxHeight,
-                          ),
-                        )
-                      : NetworkImgLayer(
-                          src: bangumiItem.images['large'] ?? '',
-                          width: maxWidth,
-                          height: maxHeight,
-                        );
-                }),
-              ),
-              BangumiContent(bangumiItem: bangumiItem)
-            ],
+                          );
+                  }),
+                ),
+                BangumiContent(bangumiItem: bangumiItem)
+              ],
+            ),
           ),
         ),
       ),

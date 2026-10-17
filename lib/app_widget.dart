@@ -12,6 +12,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/dialog/exit_confirmation_dialog.dart';
 import 'package:kazumi/bean/settings/theme_provider.dart';
+import 'package:kazumi/bean/widget/tv_focus.dart';
 import 'package:kazumi/navigation.dart';
 import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/utils/device.dart';
@@ -314,6 +315,14 @@ class _AppWidgetState extends State<AppWidget>
           darkTheme: effectiveDarkTheme,
           themeMode: themeProvider.themeMode,
           scaffoldMessengerKey: rootScaffoldMessengerKey,
+          // 遥控器「确定键」在 Flutter 里是 select 键，不在默认快捷键表里，
+          // 全局补一层映射，页面内的按钮/开关才能用遥控器按下。
+          builder: (BuildContext context, Widget? child) {
+            return Shortcuts(
+              shortcuts: tvActivateShortcuts,
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           routerConfig: ModularApp.routerConfigOf(context),
         );
       },
