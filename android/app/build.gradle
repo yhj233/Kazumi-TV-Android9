@@ -58,11 +58,32 @@ android {
         versionName flutterVersionName
     }
 
+    // 固定签名，保证后续版本可以直接覆盖安装升级。
+    // 之前用 signingConfigs.debug：CI 每次运行都会生成全新的 debug keystore，
+    // 导致两次构建的签名不同，安装时报
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE，必须先卸载（连带清掉所有设置和观看记录）。
+    // 这里改用仓库内置的 keystore；如果文件不存在（例如上游拉取后未带该文件），
+    // 仍然退回 debug 签名，不影响正常编译。
+    def releaseKeystore = file('../keystore/kazumi-tv-release.jks')
+    def hasReleaseKeystore = releaseKeystore.exists()
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            release {
+                storeFile releaseKeystore
+                storePassword 'kazumi-tv-2026'
+                keyAlias 'kazumi-tv'
+                keyPassword 'kazumi-tv-2026'
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig signingConfigs.debug
+            // 括号不能省：Groovy 不会把换行后的三元表达式续接到上一行的方法调用上
+            signingConfig(hasReleaseKeystore
+                    ? signingConfigs.release
+                    : signingConfigs.debug)
         }
     }
 }
