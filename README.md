@@ -78,6 +78,26 @@
   本移植版第 2 次起的自动重试会**放弃续播位置、从头播放**，并提示「已从头开始播放」，
   避免卡在 seek 重试循环里永远不出画面。
 
+- **AGE 等部分规则在本机网络上完全无法解析**（2026-10 实测）：这类站点把播放器依赖的
+  `app.js` 放在独立 CDN（如 `xcdn.khfed.com:8443`）上，而该域名在当前网络下 **TLS 握手被
+  按 SNI 重置**——不带 SNI 或换成别的 SNI 都能握手成功，唯独带 `xcdn.khfed.com` 时 8 次里
+  只成功 1 次。后果是页面里 `AGE` 这个全局对象没有定义（控制台：
+  `Uncaught ReferenceError: AGE is not defined`），播放器根本不会初始化，最终表现为
+  「视频解析超时」。这与 Android 版本无关，同一局域网内的 PC 用 curl 一样连不上。
+
+  > 本移植版会把 WebView 的控制台/网络错误收集起来，超时后直接告诉你原因，例如
+  > 「播放来源「AGE」的解析接口或脚本加载失败（源站不可用），请换一个播放来源」，
+  > 而不是一句无用的「解析超时」。
+
+- **WebView 版本偏老会影响部分源**：本机系统 WebView 是 Chrome 66（2018 年），
+  少数站点用了更新的 JS 语法会直接报 `SyntaxError`，同样表现为解析超时。
+  Android 9 允许手动升级 WebView（侧载新版 `com.android.webview` APK）来缓解。
+
+- **局域网存在 MTU 黑洞**（实测：到外网 1450 字节的包被静默丢弃，1400 才通，网关本身 1500 正常）。
+  这会让 TLS 握手的大包丢失、表现为「连接重置」或极慢。如果遇到大面积连接异常，
+  可临时在盒子上执行 `su -c 'ip link set wlan0 mtu 1400'` 验证；根治要在路由器上
+  改成 1492 以下的 MTU 或启用 MSS 钳制。
+
 - **弹幕**需要 DanDanPlay 开放平台的凭据。在仓库 `Settings → Secrets and variables → Actions` 添加
   `DANDANAPI_APPID` / `DANDANAPI_KEY`（可选 `KAZUMI_APPID` / `KAZUMI_KEY`）后重新触发构建即可启用；
   未配置时应用可正常使用，仅弹幕功能不可用。

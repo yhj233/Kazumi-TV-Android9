@@ -153,6 +153,9 @@ abstract class _VideoPageController with Store implements Disposable {
 
   StreamSubscription<String>? _logSubscription;
 
+  /// 解析过程中 WebView 产生的日志（已裁剪），用于在超时后判断到底坏在哪一步。
+  final List<String> _resolveLogLines = <String>[];
+
   /// Applies the route arguments exactly once, from [VideoPage.initState].
   @action
   void applyPlaybackArgs(VideoPlaybackArgs args) {
@@ -415,6 +418,42 @@ abstract class _VideoPageController with Store implements Disposable {
     _errorMessage = message;
   }
 
+  /// 解析超时后，从 WebView 日志里判断到底是「源站挂了」「脚本跑不起来」
+  /// 还是单纯太慢，把可操作的结论直接告诉用户。
+  String _describeResolveTimeout() {
+    final plugin = currentPlugin.name;
+    final logs = _resolveLogLines.join('\n');
+    KazumiLogger().w(
+      'VideoPageController: 解析超时 source=$plugin logs=${logs.length}B '
+      '${_resolveLogLines.isEmpty ? "(无日志)" : _resolveLogLines.last}',
+    );
+
+    final networkBroken = logs.contains('Failed to fetch') ||
+        logs.contains('net_error') ||
+        logs.contains('ERR_CONNECTION') ||
+        logs.contains('handshake failed') ||
+        logs.contains('ERR_NAME_NOT_RESOLVED') ||
+        logs.contains('Error: net::');
+    final scriptBroken = logs.contains('is not defined') ||
+        logs.contains('SyntaxError') ||
+        logs.contains('Uncaught ');
+    final videoFound = logs.contains('VIDEO source found') ||
+        logs.contains('M3U8 source found');
+
+    if (videoFound) {
+      return '已找到视频地址但没能交给播放器，请重试或换一个播放来源';
+    }
+    if (networkBroken) {
+      return '播放来源「$plugin」的解析接口或脚本加载失败（源站不可用），'
+          '请换一个播放来源';
+    }
+    if (scriptBroken) {
+      return '播放来源「$plugin」的网页脚本在本机 WebView 上无法运行，'
+          '请换一个播放来源';
+    }
+    return '播放来源「$plugin」解析超时，请重试或换一个播放来源';
+  }
+
   Future<void> changeEpisode(
     int episode, {
     int currentRoad = 0,
@@ -596,7 +635,12 @@ abstract class _VideoPageController with Store implements Disposable {
     _videoSourceService ??= WebViewVideoSourceService();
 
     await _logSubscription?.cancel();
+    _resolveLogLines.clear();
     _logSubscription = _videoSourceService!.onLog.listen((log) {
+      _resolveLogLines.add(log);
+      if (_resolveLogLines.length > 120) {
+        _resolveLogLines.removeAt(0);
+      }
       if (!_logStreamController.isClosed) {
         _logStreamController.add(log);
       }
@@ -607,6 +651,9 @@ abstract class _VideoPageController with Store implements Disposable {
         url,
         useLegacyParser: currentPlugin.useLegacyParser,
         offset: offset,
+        // 老盒子的 WebView 是 Chrome 66，加载重页面比手机慢得多，
+        // 15 秒很容易把「慢但在走」的解析误判成失败。
+        timeout: const Duration(seconds: 30),
       );
 
       if (session.isStale) {
@@ -661,7 +708,7 @@ abstract class _VideoPageController with Store implements Disposable {
       if (session.isStale) {
         return;
       }
-      _failLoading('视频解析超时，请重试');
+      _failLoading(_describeResolveTimeout());
     } on VideoSourceCancelledException {
       KazumiLogger().i('VideoPageController: video URL resolution cancelled');
     } catch (e) {
