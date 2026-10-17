@@ -191,7 +191,7 @@ abstract class _PlayerPlaybackController with Store {
             );
             if (!hardwareActive && _softwareHeavyCodecs.contains(format)) {
               warn(
-                '本机没有 ${format.toUpperCase()} 硬件解码器，正在使用软件解码，很可能卡顿或黑屏。请切换其他线路',
+                '本机没有 ${format.toUpperCase()} 硬件解码器，正在用软件解码，很可能黑屏或卡顿。请换一条线路或换一个番剧来源',
                 'PlayerController: $format 无硬解，已提示用户换线 ${videoUrl()}',
               );
             }
@@ -215,7 +215,7 @@ abstract class _PlayerPlaybackController with Store {
         // 40 秒还拿不到时长：要么 CDN 卡住，要么解码初始化极慢
         if (ticks >= 20 && !state.buffering) {
           warn(
-            '视频长时间无法开始播放，请在播放页切换其他线路重试',
+            '视频长时间无法开始播放，请换一条线路或换一个番剧来源重试',
             'PlayerController: 打开后 40 秒仍无时长，已提示用户换线 ${videoUrl()}',
           );
         }
@@ -233,7 +233,7 @@ abstract class _PlayerPlaybackController with Store {
         }
         if (stallTicks >= 5) {
           warn(
-            '播放停滞：当前线路可能无法在本机解码，请切换其他线路',
+            '播放停滞：该片源可能无法在本机解码，请换一条线路或换一个番剧来源',
             'PlayerController: 播放停滞 10 秒 @${state.position} ${videoUrl()}',
           );
         }
@@ -254,7 +254,7 @@ abstract class _PlayerPlaybackController with Store {
             );
             if (probeDone && fpsChecks >= 3 && outputFps < containerFps * 0.5) {
               warn(
-                '本机解码能力不足，画面会严重卡顿，建议切换其他线路',
+                '本机解码能力不足，画面会严重卡顿，建议换一条线路或番剧来源',
                 'PlayerController: 解码跟不上 输出=${outputFps.toStringAsFixed(1)}fps '
                     '< 片源=${containerFps.toStringAsFixed(1)}fps ${videoUrl()}',
               );
