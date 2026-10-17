@@ -219,6 +219,12 @@ abstract class _PlayerPlaybackController with Store {
             'PlayerController: 打开后 40 秒仍无画面，已提示用户换线 ${videoUrl()}',
           );
         }
+        // 60 秒仍无画面就提醒可以退回换线。这里不做自动 stop+open：
+        // media_kit 的 open/stop 共用同一把锁，stop 会一直排队到 open 返回，
+        // 等它拿到锁时画面往往已经出来了，反而会把正常播放打断。
+        if (ticks == 30) {
+          KazumiLogger().w('PlayerController: 60 秒仍无画面，等待 CDN 响应中 ${videoUrl()}');
+        }
         return;
       }
 
