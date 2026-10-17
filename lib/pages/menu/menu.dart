@@ -44,7 +44,10 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   }
 
   /// 首帧可能还判定不出横竖屏（拿到尺寸前按竖屏走），
-  /// 所以每次横屏构建都补一次，直到焦点真的落进界面为止。
+  /// 所以每次横屏构建都补一次，直到焦点真的落进侧边栏为止。
+  ///
+  /// 这里不用 primaryFocus 做「是否已有焦点」的判断：路由重建过程里
+  /// 会短暂残留已 dispose 的焦点节点，按它判断会误以为已经有焦点而跳过。
   void _ensureInitialRailFocus() {
     if (!tvDpadEnabled || _initialRailFocusDone) {
       return;
@@ -53,17 +56,12 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
       if (!mounted || _initialRailFocusDone) {
         return;
       }
-      final FocusNode? primary = FocusManager.instance.primaryFocus;
-      final FocusScopeNode root = FocusManager.instance.rootScope;
-      if (primary != null && !identical(primary, root)) {
-        _initialRailFocusDone = true;
+      final TvNavRailState? rail = _railKey.currentState;
+      if (rail == null) {
         return;
       }
-      final TvNavRailState? rail = _railKey.currentState;
-      if (rail != null) {
-        _initialRailFocusDone = true;
-        rail.focusSelected();
-      }
+      _initialRailFocusDone = true;
+      rail.focusSelected();
     });
   }
 
