@@ -201,6 +201,9 @@ class _PopularPageState extends State<PopularPage> {
                               KazumiMenuItem(
                                 label: tag.isEmpty ? '热门番组' : tag,
                                 selected: tag == popularController.currentTag,
+                                // 遥控器展开菜单后焦点直接落在当前分类上。
+                                autofocus:
+                                    tag == popularController.currentTag,
                                 onPressed: () => _selectTag(tag),
                               ),
                           ],

@@ -3,6 +3,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:flutter/services.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/widget/embedded_native_control_area.dart';
+import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/bean/widget/tv_focus.dart';
 import 'package:kazumi/bean/widget/tv_nav_rail.dart';
 import 'package:kazumi/navigation.dart';
@@ -193,6 +194,12 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   }
 
   void _handleSystemBack(BuildContext context) {
+    // 浮层菜单开着时，返回键先关菜单，而不是弹退出提示。
+    if (KazumiOpenMenus.hasOpen) {
+      KazumiOpenMenus.closeAll();
+      _lastExitPromptAt = null;
+      return;
+    }
     if (_outletKey.currentState?.maybePop() ?? false) {
       _lastExitPromptAt = null;
       return;
