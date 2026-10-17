@@ -61,6 +61,10 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
         return;
       }
       _initialRailFocusDone = true;
+      // 冷启动时 root scope 还没激活，直接 requestFocus 会被排队丢掉
+      // （这也是为什么键盘 TAB 有效、程序化聚焦没反应）。
+      // 先用一次方向遍历把焦点树激活，再精确落到侧边栏当前项。
+      FocusManager.instance.rootScope.nextFocus();
       rail.focusSelected();
     });
   }
