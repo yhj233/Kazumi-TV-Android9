@@ -130,6 +130,157 @@ abstract class _PlayerPlaybackController with Store {
     return null;
   }
 
+  Timer? _diagnosticTimer;
+
+  void _stopPlaybackDiagnostics() {
+    _diagnosticTimer?.cancel();
+    _diagnosticTimer = null;
+  }
+
+  /// 市面上大量低端电视盒子（例如国科微 GK6323、晶晨 S905 老固件）只有
+  /// H.264 / H.265 / VP9 的硬件解码器，遇到 AV1 片源时 mpv 会静默退回
+  /// dav1d 纯软件解码：解析正常、没有报错、进度条也在走，但 4 个 A9 核心
+  /// 跑满也追不上 1080p AV1，表现就是黑屏或卡死。
+  ///
+  /// 这里在播放开始后探测真实的解码路径与帧率，一旦确认是软件解码的
+  /// AV1 或渲染帧率远低于片源帧率，就明确告诉用户换线路，
+  /// 而不是让他在黑屏前一直等下去。
+  static const Set<String> _softwareHeavyCodecs = {'av1'};
+
+  void _startPlaybackDiagnostics(Player player) {
+    _stopPlaybackDiagnostics();
+    if (!Platform.isAndroid) {
+      return;
+    }
+    final pp = player.platform as NativePlayer;
+    var probeDone = false;
+    var warned = false;
+    var ticks = 0;
+    var lastPosition = Duration.zero;
+    var stallTicks = 0;
+    var fpsChecks = 0;
+    var busy = false;
+
+    void warn(String message, String logLine) {
+      if (warned) {
+        return;
+      }
+      warned = true;
+      KazumiLogger().w(logLine);
+      KazumiDialog.showToast(
+        message: message,
+        duration: const Duration(seconds: 8),
+        showActionButton: true,
+      );
+    }
+
+    Future<void> tick() async {
+      ticks++;
+
+      if (!probeDone) {
+        try {
+          final format = await pp.getProperty('video-format');
+          if (format.isNotEmpty) {
+            probeDone = true;
+            final codec = await pp.getProperty('video-codec');
+            final hwdec = await pp.getProperty('hwdec-current');
+            final hardwareActive = hwdec.isNotEmpty && hwdec != 'no';
+            KazumiLogger().i(
+              'PlayerController: 解码路径 codec=$format ($codec) '
+              'hwdec=${hwdec.isEmpty ? 'none' : hwdec}',
+            );
+            if (!hardwareActive && _softwareHeavyCodecs.contains(format)) {
+              warn(
+                '本机没有 ${format.toUpperCase()} 硬件解码器，正在使用软件解码，很可能卡顿或黑屏。请切换其他线路',
+                'PlayerController: $format 无硬解，已提示用户换线 ${videoUrl()}',
+              );
+            }
+          }
+        } catch (_) {
+          // 属性还没就绪，下一轮再试
+        }
+      }
+
+      PlayerState? state;
+      try {
+        state = player.state;
+      } catch (_) {
+        return;
+      }
+      if (state == null) {
+        return;
+      }
+
+      if (state.duration <= Duration.zero) {
+        // 40 秒还拿不到时长：要么 CDN 卡住，要么解码初始化极慢
+        if (ticks >= 20 && !state.buffering) {
+          warn(
+            '视频长时间无法开始播放，请在播放页切换其他线路重试',
+            'PlayerController: 打开后 40 秒仍无时长，已提示用户换线 ${videoUrl()}',
+          );
+        }
+        return;
+      }
+
+      // 已经出画面：位置长时间不动视为卡死（暂停/缓冲时不算）
+      if (state.playing && !state.buffering) {
+        if ((state.position - lastPosition).abs() <
+            const Duration(milliseconds: 300)) {
+          stallTicks++;
+        } else {
+          stallTicks = 0;
+          lastPosition = state.position;
+        }
+        if (stallTicks >= 5) {
+          warn(
+            '播放停滞：当前线路可能无法在本机解码，请切换其他线路',
+            'PlayerController: 播放停滞 10 秒 @${state.position} ${videoUrl()}',
+          );
+        }
+      }
+
+      // 解码跟不上时 mpv 的渲染帧率会明显低于片源帧率
+      if (probeDone && fpsChecks < 5 && state.playing) {
+        fpsChecks++;
+        try {
+          final containerFps =
+              double.tryParse(await pp.getProperty('container-fps')) ?? 0;
+          final outputFps =
+              double.tryParse(await pp.getProperty('estimated-vf-fps')) ?? 0;
+          if (containerFps > 1 && outputFps > 0) {
+            KazumiLogger().i(
+              'PlayerController: 帧率 输出=${outputFps.toStringAsFixed(1)} '
+              '片源=${containerFps.toStringAsFixed(1)}',
+            );
+            if (probeDone && fpsChecks >= 3 && outputFps < containerFps * 0.5) {
+              warn(
+                '本机解码能力不足，画面会严重卡顿，建议切换其他线路',
+                'PlayerController: 解码跟不上 输出=${outputFps.toStringAsFixed(1)}fps '
+                    '< 片源=${containerFps.toStringAsFixed(1)}fps ${videoUrl()}',
+              );
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    _diagnosticTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (busy) {
+        return;
+      }
+      if (!isCurrentPlayer(player)) {
+        timer.cancel();
+        return;
+      }
+      busy = true;
+      try {
+        await tick();
+      } finally {
+        busy = false;
+      }
+    });
+  }
+
   Future<void> _cancelDebugInfo() async {
     try {
       await debug.cancel();
@@ -499,6 +650,7 @@ abstract class _PlayerPlaybackController with Store {
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
       }
+      _startPlaybackDiagnostics(player);
 
       if (cachePolicy.networkAutomatic) {
         KazumiDialog.showToast(message: '移动数据下已自动开启低内存模式，可在播放设置中改为始终关闭');
@@ -506,6 +658,7 @@ abstract class _PlayerPlaybackController with Store {
 
       return player;
     } catch (error, stackTrace) {
+      _stopPlaybackDiagnostics();
       if (identical(_ownedPlayer, candidate)) {
         cachePolicy.stopWatching();
         _ownedPlayer = null;
@@ -650,6 +803,7 @@ abstract class _PlayerPlaybackController with Store {
   }
 
   Future<void> stop() async {
+    _stopPlaybackDiagnostics();
     cachePolicy.stopWatching();
     final ownedPlayer = _ownedPlayer;
     _ownedPlayer = null;

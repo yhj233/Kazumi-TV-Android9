@@ -53,10 +53,43 @@
 
 ### 已知限制
 
+- **AV1 编码的视频在低端盒子上无法正常播放（硬件限制，非软件问题）**。
+  实测咪咕 MGV3201-ZG（国科微 GK6323，4×Cortex-A9，2GB RAM）：
+  系统的 `media_codecs.xml` 只声明 `video/avc` / `video/hevc` / `video/x-vnd.on2.vp9`，
+  **没有 `video/av01`**；而部分番剧源（如 mgnacg）下发的是 **1080p AV1**（MP4 里 `ftyp` 带 `isomav01`）。
+  > 播放器只能回退 dav1d 软解，4 个核会被打满（实测 330%/400%），
+  > 日志持续输出 `Audio device underrun detected`，表现为黑屏很久才出画面、之后音画卡顿。
+  >
+  > 遇到这种情况请**更换规则/线路**，选择 H.264（avc）或 H.265（hevc）片源即可硬解流畅播放。
+  > 由于软解时播放器可能既不报错也不出画面，本移植版会主动探测解码路径：
+  > 一旦确认「AV1 + 软解」或「输出帧率低于片源帧率一半」或「40 秒拿不到时长」
+  > 或「画面停滞 10 秒」，会在播放页弹出提示，直接告诉你换线路，而不是让你对着黑屏干等。
+  > 查看当前片源编码：打开「设置 → 播放设置 → 诊断 → 调试模式」，日志里会打印
+  > `vd` / `hwdec` 相关信息；也可以直接把视频直链发给 PC 用 `ffprobe` 查看。
+
+- 部分片源 CDN（例如联通沃盘 `tjdownload.pan.wo.cn`）存在间歇性「握手后不回数据」的问题，
+  播放器会在约 70 秒后报 `tcp: ffurl_read returned 0xdfb9b0bb`（= EOF）并提示「加载失败」。
+  应用会自动重试一次；仍失败时换线路或稍后重试即可。
+
 - **弹幕**需要 DanDanPlay 开放平台的凭据。在仓库 `Settings → Secrets and variables → Actions` 添加
   `DANDANAPI_APPID` / `DANDANAPI_KEY`（可选 `KAZUMI_APPID` / `KAZUMI_KEY`）后重新触发构建即可启用；
   未配置时应用可正常使用，仅弹幕功能不可用。
 - 遥控器操作沿用 Flutter 默认的焦点导航，部分触屏手势界面建议配合鼠标 / 飞鼠使用。
+
+### 关于签名
+
+本仓库在 `android/keystore/kazumi-tv-release.jks` 内置了一份**固定的 release 签名密钥**，
+`android/app/build.gradle` 会优先使用它（文件缺失时自动退回 debug 签名）。
+
+这样做的原因：之前用 `signingConfigs.debug`，而 GitHub Actions 的 runner 每次都会重新生成
+debug keystore，导致**每次构建的签名都不一样**，安装时会报
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`，必须先卸载（会清空所有设置和观看记录）。
+
+> 注意：该 keystore 随仓库公开。它只用于本仓库的侧载包身份识别，
+> 不影响任何账号安全；若你介意，可以换成自己的密钥并改用仓库 Secrets 注入。
+
+从旧版本（临时 debug 签名）升级到本版本时仍需卸载一次，之后即可直接覆盖安装。
+
 
 ## 屏幕截图
 
