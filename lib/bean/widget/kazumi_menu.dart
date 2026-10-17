@@ -72,7 +72,6 @@ class _KazumiMenuButtonState extends State<KazumiMenuButton> {
   @override
   void dispose() {
     KazumiOpenMenus.remove(_controller);
-    _ownController?.dispose();
     super.dispose();
   }
 
