@@ -228,8 +228,10 @@ abstract class _PlayerPlaybackController with Store {
         return;
       }
 
-      // 已经出画面：位置长时间不动视为卡死（暂停/缓冲时不算）
-      if (state.playing && !state.buffering) {
+      // 已经拿到片长：位置长时间不动视为卡死（暂停时不算）。
+      // 注意这里不能排除 buffering——拖动失败/CDN 不给数据时 mpv 会一直
+      // 停在 buffering 状态，正是需要提示用户的场景。
+      if (state.playing) {
         if ((state.position - lastPosition).abs() <
             const Duration(milliseconds: 300)) {
           stallTicks++;
@@ -237,10 +239,10 @@ abstract class _PlayerPlaybackController with Store {
           stallTicks = 0;
           lastPosition = state.position;
         }
-        if (stallTicks >= 5) {
+        if (stallTicks >= 8) {
           warn(
-            '播放停滞：该片源可能无法在本机解码，请换一条线路或换一个番剧来源',
-            'PlayerController: 播放停滞 10 秒 @${state.position} ${videoUrl()}',
+            '播放停滞：该片源可能无法在本机解码或线路不给数据，请换一条线路或换一个番剧来源',
+            'PlayerController: 播放停滞 16 秒 @${state.position} ${videoUrl()}',
           );
         }
       }
@@ -608,17 +610,21 @@ abstract class _PlayerPlaybackController with Store {
 
       bool showPlayerError = GStorage.getSetting(SettingsKeys.showPlayerError);
       // 部分 CDN 会在握手后掐断连接或长时间不回数据，mpv 看到的是 EOF
-      // （Failed to open）或读取超时。这类失败是"按连接抽签"的，
-      // 换一条新连接往往立刻就能播，所以这里做几次带间隔的自动重试。
+      // （Failed to open）或读取超时；还有一类是「能打开但拖动失败」：
+      // 续播位置会触发一次新的 Range 请求，而这条新连接的 TLS 握手会被
+      // 服务器直接拒绝（mbedtls_ssl_handshake returned -0x4e），
+      // mpv 于是卡在 seek 重试循环里永不出画面。这类失败按连接抽签，
+      // 换新连接常常能过，所以第一次重试保留进度，之后改为从头播放。
       var openRetries = 0;
       const maxOpenRetries = 3;
       bool playbackStarted() =>
-          player.state.duration > Duration.zero ||
           player.state.position > const Duration(seconds: 1);
       player.stream.error.listen((event) {
         final errorText = event.toString();
         final looksTransient = errorText.contains('Failed to open') ||
             errorText.contains('ffurl_read returned') ||
+            errorText.contains('Seek failed') ||
+            errorText.contains('partial file') ||
             errorText.contains('Timeout') ||
             errorText.contains('timed out');
         if (looksTransient &&
@@ -626,9 +632,17 @@ abstract class _PlayerPlaybackController with Store {
             !playbackStarted() &&
             isCurrentPlayer(player)) {
           openRetries++;
+          final retryOffset = openRetries >= 2 ? 0 : offset;
           KazumiLogger().i(
-            'PlayerController: 打开失败，2 秒后自动重试（第 $openRetries/$maxOpenRetries 次）',
+            'PlayerController: 打开失败，2 秒后自动重试'
+            '（第 $openRetries/$maxOpenRetries 次，start=$retryOffset）',
           );
+          if (retryOffset != offset) {
+            KazumiDialog.showToast(
+              message: '该线路无法跳到上次进度，已从头开始播放',
+              duration: const Duration(seconds: 4),
+            );
+          }
           _startPlaybackDiagnostics(player);
           unawaited(
             Future<void>.delayed(const Duration(seconds: 2), () async {
@@ -638,7 +652,7 @@ abstract class _PlayerPlaybackController with Store {
               try {
                 await player.open(
                   Media(videoUrl(),
-                      start: Duration(seconds: offset),
+                      start: Duration(seconds: retryOffset),
                       httpHeaders: httpHeaders),
                   play: autoPlay,
                 );
